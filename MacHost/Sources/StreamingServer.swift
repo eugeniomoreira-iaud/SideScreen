@@ -60,6 +60,10 @@ enum StreamingServerStartError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .listenerFailed(let port, let underlying):
+            if case .posix(.EADDRINUSE)? = underlying as? NWError {
+                return "Port \(port) is already in use by another app. "
+                    + "Choose a different Server Port in Settings and enter the same port on the tablet."
+            }
             return "Could not listen on port \(port): \(underlying.localizedDescription)"
         case .cancelledBeforeReady(let port):
             return "Server startup on port \(port) was cancelled before the listener became ready."

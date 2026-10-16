@@ -127,6 +127,7 @@ final class StreamingServerStartupTests: XCTestCase {
             }
             XCTAssertEqual(port, occupiedPort)
             XCTAssertTrue(error.localizedDescription.contains(String(occupiedPort)))
+            XCTAssertTrue(error.localizedDescription.contains("already in use"))
             XCTAssertLessThan(Date().timeIntervalSince(startTime), 2)
         } catch {
             XCTFail("Expected StreamingServerStartError, got \(error)")
