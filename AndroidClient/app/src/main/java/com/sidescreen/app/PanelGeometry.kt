@@ -10,6 +10,25 @@ data class PanelGeometry(
     val height: Int,
     val refreshHz: Int,
 ) {
+    /**
+     * Advice when the Mac's stream shape differs from this panel's, which stretches it into a
+     * distorted, softer image. Null when the shapes already match, in either orientation. The 2%
+     * slack absorbs the host flooring a decoder-capped size to multiples of 16.
+     */
+    fun resolutionHint(
+        streamWidth: Int,
+        streamHeight: Int,
+    ): String? {
+        val w = maxOf(streamWidth, streamHeight)
+        val h = minOf(streamWidth, streamHeight)
+        if (h <= 0) return null
+        val mismatch = (w.toDouble() / h) / (width.toDouble() / height)
+        if (mismatch in 0.98..1.02) return null
+        return "Mac resolution ${streamWidth}x$streamHeight doesn't match this screen (${width}x$height). " +
+            "For a sharp full-screen image set the Mac to ${width}x$height, " +
+            "or ${width / 2}x${height / 2} with HiDPI."
+    }
+
     companion object {
         /**
          * [Display.Mode.physicalWidth] and [Display.Mode.physicalHeight] report the panel in its

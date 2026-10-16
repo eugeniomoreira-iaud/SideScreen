@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
     private var displayRotation = 0 // 0, 90, 180, 270 degrees
     private var displayFlipHorizontal = false
     private var displayFlipVertical = false
+    private var lastResolutionHint: String? = null // shown once per distinct mismatch
     private var wakeLock: PowerManager.WakeLock? = null
     private var pingJob: kotlinx.coroutines.Job? = null
 
@@ -272,6 +273,10 @@ class MainActivity : AppCompatActivity() {
      * Also handles display cutout (notch) to use full screen area
      */
     private fun enableFullscreenMode() {
+        // The port field's keyboard would otherwise stay up over the stream, covering it and any toast
+        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+            .hideSoftInputFromWindow(window.decorView.windowToken, 0)
+
         // Ensure we draw behind the cutout
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode =
@@ -1077,6 +1082,21 @@ class MainActivity : AppCompatActivity() {
             if (differs) "$stream (desktop ${desktopWidth}x$desktopHeight)" else stream
     }
 
+    /** Show the best Mac resolution when the stream's shape doesn't fit this panel; once per mismatch, until dismissed. */
+    private fun showResolutionHint(
+        width: Int,
+        height: Int,
+    ) {
+        val hint = PanelGeometry.ofDefaultDisplay(this)?.resolutionHint(width, height) ?: return
+        if (hint == lastResolutionHint) return
+        lastResolutionHint = hint
+        com.google.android.material.snackbar.Snackbar
+            .make(binding.root, hint, com.google.android.material.snackbar.Snackbar.LENGTH_INDEFINITE)
+            .setTextMaxLines(4)
+            .setAction("Dismiss") {}
+            .show()
+    }
+
     private fun shouldUseTextureView(): Boolean = displayFlipHorizontal || displayFlipVertical
 
     private fun activeVideoSurface(): Pair<Surface, Boolean>? {
@@ -1282,6 +1302,7 @@ class MainActivity : AppCompatActivity() {
                 updateResolutionOverlay()
                 applyRotation(rotation, flipHorizontal, flipVertical)
                 initializeDecoderForCurrentSurface()
+                showResolutionHint(width, height)
             }
             log("Display: ${width}x$height @ $rotation°")
         }
@@ -1551,6 +1572,7 @@ class MainActivity : AppCompatActivity() {
                         updateResolutionOverlay()
                         applyRotation(rotation, flipHorizontal, flipVertical)
                         initializeDecoderForCurrentSurface()
+                        showResolutionHint(width, height)
                     }
                     log("Display: ${width}x$height @ $rotation°")
                 }
