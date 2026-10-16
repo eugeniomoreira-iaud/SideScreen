@@ -543,6 +543,7 @@ class StreamClient(
         pointerCount: Int = 1,
         x2: Float = 0f,
         y2: Float = 0f,
+        pen: Boolean = false,
     ) {
         if (!isConnected) return
 
@@ -551,7 +552,9 @@ class StreamClient(
                 socket?.getOutputStream()?.let { out ->
                     val count = pointerCount.coerceIn(1, 2)
                     val size = 6 + count * 8 // 1 type + 1 count + N*(4x+4y) + 4 action
-                    val buffer = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
+                    val buffer = ByteBuffer.allocate(size + if (pen) 1 else 0).order(ByteOrder.LITTLE_ENDIAN)
+                    // Type 15 (pen down) marks this touch-down as a stylus: host draws instead of gesturing
+                    if (pen) buffer.put(15.toByte())
                     buffer.put(2.toByte())
                     buffer.put(count.toByte())
                     buffer.putFloat(x)

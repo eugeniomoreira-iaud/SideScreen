@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.Surface
@@ -47,6 +48,9 @@ private fun mainDiag(msg: String) = DiagLog.log("MA", msg)
 
 private const val MAC_APP_URL = "https://sidescreen.dev"
 
+// ponytail: fixed palm window after pen hover/lift; make it a setting if hands linger longer
+private const val PALM_REJECT_MS = 500L
+
 class MainActivity : AppCompatActivity() {
     private lateinit var wirelessController: WirelessTabController
     private lateinit var appUpdater: AppUpdater
@@ -74,6 +78,9 @@ class MainActivity : AppCompatActivity() {
     private var displayFlipHorizontal = false
     private var displayFlipVertical = false
     private var lastResolutionHint: String? = null // shown once per distinct mismatch
+    private var penActive = false // pen stroke in progress on the Mac
+    private var palmStream = false // current finger stream is a resting palm, not sent
+    private var lastPenSeenAt = 0L // uptime of last pen touch/hover, for palm rejection
     private var wakeLock: PowerManager.WakeLock? = null
     private var pingJob: kotlinx.coroutines.Job? = null
 
@@ -394,6 +401,8 @@ class MainActivity : AppCompatActivity() {
             if (demoActive) showDemoTouchHint(event) else handleTouch(view, event)
             true
         }
+        binding.surfaceView.setOnHoverListener { _, event -> notePenHover(event) }
+        binding.textureView.setOnHoverListener { _, event -> notePenHover(event) }
     }
 
     private fun setupUI() {
@@ -1670,10 +1679,67 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isPen(
+        event: MotionEvent,
+        i: Int,
+    ) = event.getToolType(i).let { it == MotionEvent.TOOL_TYPE_STYLUS || it == MotionEvent.TOOL_TYPE_ERASER }
+
+    /** Hover listener: remembers when the pen was last near the screen, for palm rejection. */
+    private fun notePenHover(event: MotionEvent): Boolean {
+        if (isPen(event, 0)) lastPenSeenAt = SystemClock.uptimeMillis()
+        return false
+    }
+
+    /**
+     * Stylus present: send only the pen pointer, as an immediate draw. Every finger in the
+     * same stream is a resting palm and is dropped. No finger up is sent for a palm already
+     * reported, since the Mac would read that as a click; the pen's own down resets its state.
+     */
+    private fun handlePen(
+        view: View,
+        event: MotionEvent,
+        i: Int,
+    ) {
+        lastPenSeenAt = SystemClock.uptimeMillis()
+        palmStream = true
+        val rawX = event.getX(i) / view.width.toFloat()
+        val rawY = event.getY(i) / view.height.toFloat()
+        val x = if (displayFlipHorizontal) 1f - rawX else rawX
+        val y = if (displayFlipVertical) 1f - rawY else rawY
+        val penAction = event.actionIndex == i
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                if (penAction) {
+                    penActive = true
+                    streamClient?.sendTouch(x, y, 0, 1, pen = true)
+                }
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (penActive) streamClient?.sendTouch(x, y, 1, 1)
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                if (penActive && (penAction || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
+                    penActive = false
+                    streamClient?.sendTouch(x, y, 2, 1)
+                }
+            }
+        }
+    }
+
     private fun handleTouch(
         view: View,
         event: MotionEvent,
     ) {
+        val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event, it) }
+        if (penIndex != null) return handlePen(view, event, penIndex)
+        // Palm rejection: a finger landing while the pen is near (or just lifted) is the drawing hand
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            palmStream = SystemClock.uptimeMillis() - lastPenSeenAt < PALM_REJECT_MS
+        }
+        if (palmStream) return
+
         val rawX = event.x / view.width.toFloat()
         val rawY = event.y / view.height.toFloat()
         val x = if (displayFlipHorizontal) 1f - rawX else rawX

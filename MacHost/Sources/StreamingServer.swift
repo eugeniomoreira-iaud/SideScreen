@@ -34,6 +34,10 @@ private enum WireMessage {
     /// encoding, every byte high-bit set). Sent after type 11, which older
     /// hosts still read; hosts that know this type prefer it (issue #78).
     static let clientDecoderLimitTable: UInt8 = 14
+    /// Client→server, payload-free: the next touch-down (type 2) is a stylus,
+    /// so it draws (left-drag) at once instead of running finger gestures.
+    /// Older hosts skip the unknown byte and treat the pen as a finger.
+    static let penDown: UInt8 = 15
 }
 
 private extension NWEndpoint {
@@ -164,6 +168,8 @@ class StreamingServer {
     var onCodecNegotiated: ((StreamCodec) -> Void)?
     // Touch callback: (x1, y1, action, pointerCount, x2, y2)
     var onTouchEvent: ((Float, Float, Int, Int, Float, Float) -> Void)?
+    // Stylus marker: fired just before the pen stroke's touch-down event
+    var onPenDown: (() -> Void)?
     var onStats: ((Double, Double) -> Void)?
     var onKeyframeRequested: ((Bool) -> Void)?
     // Whether host wants to receive touch events from client. Ping/pong is
@@ -821,6 +827,13 @@ class StreamingServer {
                     // Late opt-in (after startup): the display config already
                     // went out without geometry, so send it on its own.
                     if connectionReady { sendDesktopGeometry() }
+                }
+
+            case WireMessage.penDown:
+                consumeInputBytes(1)
+                // Same main-queue hop as handleTouchMessage, so it lands before the touch-down
+                if touchEnabled {
+                    DispatchQueue.main.async { self.onPenDown?() }
                 }
 
             default:

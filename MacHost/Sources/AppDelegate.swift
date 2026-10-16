@@ -698,6 +698,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             streamingServer?.onTouchEvent = { [weak self] x, y, action, pointerCount, x2, y2 in
                 self?.handleTouch(x: x, y: y, action: action, pointerCount: pointerCount, x2: x2, y2: y2)
             }
+            streamingServer?.onPenDown = { [weak self] in
+                self?.nextTouchIsPen = true
+            }
 
             streamingServer?.onStats = { [weak self] fps, mbps in
                 let captured = self
@@ -809,6 +812,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let eventSource = CGEventSource(stateID: .hidSystemState)
     private var accessibilityWarningShown = false
     private var gestureState: GestureState = .idle
+    private var nextTouchIsPen = false
     private var lastTouchTime: UInt64 = 0
 
     // Touch tracking
@@ -890,6 +894,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         touchLastPosition = point
         touchStartTime = DispatchTime.now().uptimeNanoseconds
         touchLastMoveTime = touchStartTime
+
+        // Stylus draws straight away: plain left-drag, no tap/scroll/long-press detection
+        if nextTouchIsPen {
+            nextTouchIsPen = false
+            gestureState = .dragging
+            injectMouseDown(at: point)
+            return
+        }
         gestureState = .pending
 
         // Move cursor to touch position (absolute)
